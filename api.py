@@ -1,34 +1,45 @@
 from fastapi import FastAPI
-import json
-import os
+import sqlite3
 
 app = FastAPI()
 
-DATA_FILE = "data.json"
+# Conectar a la base de datos SQLite y crear la tabla si no existe
+def init_db():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# Función para leer los datos almacenados
-def read_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as file:
-            return json.load(file)
-    return {"items": []}
-
-# Función para escribir datos en el archivo
-def write_data(data):
-    with open(DATA_FILE, "w") as file:
-        json.dump(data, file, indent=4)
+init_db()  # Llamamos a la función para inicializar la BD
 
 @app.get("/")
-def read_root():
-    return {"message": "API en Vercel con FastAPI"}
+def home():
+    return {"message": "API con SQLite en Vercel"}
 
-@app.get("/items")
-def get_items():
-    return read_data()
+@app.get("/users")
+def get_users():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    users = [{"id": row[0], "nombre": row[1], "email": row[2]} for row in cursor.fetchall()]
+    conn.close()
+    return {"users": users}
 
-@app.post("/items")
-def add_item(item: dict):
-    data = read_data()
-    data["items"].append(item)
-    write_data(data)
-    return {"message": "Item agregado", "data": item}
+@app.post("/users")
+def add_user(nombre: str, email: str):
+    try:
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (nombre, email) VALUES (?, ?)", (nombre, email))
+        conn.commit()
+        conn.close()
+        return {"message": "Usuario agregado", "nombre": nombre, "email": email}
+    except sqlite3.IntegrityError:
+        return {"error": "El email ya está registrado"}
