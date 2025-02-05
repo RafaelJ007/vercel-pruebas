@@ -1,49 +1,45 @@
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
-from . import models, schemas, database
-
-models.Base.metadata.create_all(bind=database.engine)
+from fastapi import FastAPI
+import sqlite3
 
 app = FastAPI()
 
-def get_db():
-    db = database.SessionLocal()
+# Conectar a la base de datos SQLite y crear la tabla si no existe
+def init_db():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()  # Llamamos a la función para inicializar la BD
+
+@app.get("/")
+def home():
+    return {"message": "API con SQLite en Vercel"}
+
+@app.get("/users")
+def get_users():
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    users = [{"id": row[0], "nombre": row[1], "email": row[2]} for row in cursor.fetchall()]
+    conn.close()
+    return {"users": users}
+
+@app.post("/users")
+def add_user(nombre: str, email: str):
     try:
-        yield db
-    finally:
-        db.close()
-
-@app.post("/items/", response_model=schemas.Item)
-def create_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
-    db_item = models.Item(**item.dict())
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
-    return db_item
-
-@app.get("/items/{item_id}", response_model=schemas.Item)
-def read_item(item_id: int, db: Session = Depends(get_db)):
-    item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    return item
-
-@app.put("/items/{item_id}", response_model=schemas.Item)
-def update_item(item_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)):
-    db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if db_item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    db_item.title = item.title
-    db_item.description = item.description
-    db.commit()
-    db.refresh(db_item)
-    return db_item
-
-@app.delete("/items/{item_id}")
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if db_item is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-    db.delete(db_item)
-    db.commit()
-    return {"message": "Item deleted successfully"}
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (nombre, email) VALUES (?, ?)", (nombre, email))
+        conn.commit()
+        conn.close()
+        return {"message": "Usuario agregado", "nombre": nombre, "email": email}
+    except sqlite3.IntegrityError:
+        return {"error": "El email ya está registrado"}
